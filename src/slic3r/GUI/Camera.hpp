@@ -175,9 +175,12 @@ public:
     // rotates the current view 90 degrees around the viewing axis (roll), keeping the same face in view.
     // Works identically regardless of which of the 6 faces is currently shown.
     void rotate_view_roll(bool clockwise);
-    // forces camera right vector to be parallel to XY plane
+    // forces camera right vector to be parallel to XY plane, to correct drift from 3D-mouse free rotation.
+    // Skipped for an axis-aligned view (e.g. one just rolled 90 degrees via the navigator cube's roll
+    // arrows) since that tilt is deliberate, not drift, and leveling it would silently discard the roll
+    // the moment the user starts orbiting.
     void recover_from_free_camera() {
-        if (std::abs(get_dir_right()(2)) > EPSILON)
+        if (!is_axis_aligned_view() && std::abs(get_dir_right()(2)) > EPSILON)
             look_at(get_position(), m_target, Vec3d::UnitZ());
     }
 
