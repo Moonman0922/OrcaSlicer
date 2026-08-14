@@ -4,6 +4,7 @@
 #include "libslic3r/BoundingBox.hpp"
 #include "3DScene.hpp"
 #include <array>
+#include <chrono>
 
 namespace Slic3r {
 namespace GUI {
@@ -67,6 +68,11 @@ private:
     std::pair<double, double> m_frustrum_zs;
 
     BoundingBoxf3 m_scene_box;
+
+    // Animation state for recover_from_free_camera()'s smooth leveling: whether a correction is
+    // currently in progress, and the last time it was advanced (used to time-step the ease amount).
+    bool m_roll_recovery_active{ false };
+    std::chrono::steady_clock::time_point m_roll_recovery_last_tick;
 
 public:
     Camera() { set_default_orientation(); }
@@ -164,11 +170,24 @@ public:
     // returns true if the camera z axis (forward) is pointing in the negative direction of the world z axis
     bool is_looking_downward() const { return get_dir_forward().dot(Vec3d::UnitZ()) < 0.0; }
     bool is_looking_front() const { return abs(get_dir_up().dot(Vec3d::UnitZ())-1) < 0.001; }
-    // forces camera right vector to be parallel to XY plane
-    void recover_from_free_camera() {
-        if (std::abs(get_dir_right()(2)) > EPSILON)
-            look_at(get_position(), m_target, Vec3d::UnitZ());
+    // returns true if the view is snapped to one of the 6 principal directions (front/rear/left/right/top/bottom),
+    // i.e. the camera is looking straight along a world axis, as opposed to a free/iso/corner view
+    bool is_axis_aligned_view() const {
+        const Vec3d forward = get_dir_forward();
+        static constexpr double eps = 1e-3;
+        return std::abs(std::abs(forward.x()) - 1.0) < eps || std::abs(std::abs(forward.y()) - 1.0) < eps ||
+               std::abs(std::abs(forward.z()) - 1.0) < eps;
     }
+    // rotates the current view 90 degrees around the viewing axis (roll), keeping the same face in view.
+    // Works identically regardless of which of the 6 faces is currently shown.
+    void rotate_view_roll(bool clockwise);
+    // Brings the camera's right vector back to being level (parallel to the XY plane) whenever it isn't -
+    // whether from 3D-mouse free-rotation drift, or from a 90 degree face roll done via the navigator
+    // cube's roll arrows. Unlike an instant snap, this eases back to level over a short animation so a
+    // roll doesn't just vanish the moment the user starts orbiting; call it on every constrained-camera
+    // orbit/pan drag step (it no-ops once level, and keeps advancing/finishing an animation already
+    // in progress). Not used in free-camera mode, which keeps whatever orientation the user drags to.
+    void recover_from_free_camera();
 
     //BBS store and load camera view
     void load_camera_view(Camera& cam);
