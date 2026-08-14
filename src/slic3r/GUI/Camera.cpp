@@ -502,6 +502,44 @@ void Camera::set_rotation(const Transform3d& rotation)
     update_zenit();
 }
 
+void Camera::recover_from_free_camera()
+{
+    if (std::abs(get_dir_right()(2)) <= EPSILON) {
+        // Already level: nothing to correct, and don't let a stale "in progress" flag linger.
+        m_roll_recovery_active = false;
+        return;
+    }
+
+    // Time since this was last advanced, used to make the correction rate independent of how often the
+    // caller ticks it. Treat a freshly (re)started correction as a 0 dt so the first tick doesn't jump.
+    const auto now = std::chrono::steady_clock::now();
+    const double dt = m_roll_recovery_active ? std::chrono::duration<double>(now - m_roll_recovery_last_tick).count() : 0.0;
+    m_roll_recovery_active    = true;
+    m_roll_recovery_last_tick = now;
+
+    // Same "leveled" orientation look_at(position, m_target, UnitZ()) would produce, recomputed every
+    // call (rather than cached) so it stays correct even while the user keeps orbiting/panning during
+    // the correction.
+    const Vec3d unit_z = (get_position() - m_target).normalized();
+    const Vec3d unit_x = Vec3d::UnitZ().cross(unit_z).normalized();
+    const Vec3d unit_y = unit_z.cross(unit_x).normalized();
+    Eigen::Matrix3d leveled;
+    leveled.row(0) = unit_x.transpose();
+    leveled.row(1) = unit_y.transpose();
+    leveled.row(2) = unit_z.transpose();
+
+    // Ease the current orientation towards level with an exponential decay (short time constant, so it
+    // reads as a quick smooth pull rather than an instant snap) instead of overwriting it outright. That
+    // way the correction keeps composing correctly with whatever orbit/pan motion happens on the same or
+    // following frames, rather than fighting it.
+    static constexpr double time_constant = 0.08; // seconds
+    const double alpha = 1.0 - std::exp(-dt / time_constant);
+
+    Transform3d rotation = Transform3d::Identity();
+    rotation.linear() = m_view_rotation.slerp(alpha, Eigen::Quaterniond(leveled)).toRotationMatrix();
+    set_rotation(rotation);
+}
+
 void Camera::rotate_view_roll(bool clockwise)
 {
     // Rotate the view-space frame by +-90 degrees around its own Z axis (the axis pointing from the
