@@ -6079,6 +6079,41 @@ bool GLCanvas3D::_render_arrange_menu(float left, float right, float bottom, flo
 
 static const float cameraProjection[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 
+// Draws a round button with a curved 90 degree arrow, used by the 3D navigator to roll the view
+// while it is snapped to a cube face. Returns true if the button was clicked this frame.
+static bool render_navigator_roll_button(const ImVec2& center, float radius, bool clockwise, bool is_dark)
+{
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+    const ImVec2 delta = ImGui::GetIO().MousePos - center;
+    const bool hovered = delta.x * delta.x + delta.y * delta.y <= radius * radius;
+
+    const ImU32 bg_color    = ImGui::GetColorU32(is_dark ? ImVec4(1.f, 1.f, 1.f, hovered ? 0.18f : 0.08f) : ImVec4(0.f, 0.f, 0.f, hovered ? 0.14f : 0.06f));
+    const ImU32 arrow_color = ImGui::GetColorU32(is_dark ? ImVec4(0.88f, 0.88f, 0.88f, 1.f) : ImVec4(0.2f, 0.2f, 0.2f, 1.f));
+    draw_list->AddCircleFilled(center, radius, bg_color, 24);
+
+    // 270 degree arc. Screen Y grows downward, so sweeping the angle from a0 upward draws a
+    // visually clockwise arc; sweeping it downward draws a visually counterclockwise one.
+    const float arc_radius = radius * 0.55f;
+    const float a0 = -0.75f * (float) M_PI;
+    const float a1 = clockwise ? a0 + 1.5f * (float) M_PI : a0 - 1.5f * (float) M_PI;
+    draw_list->PathArcTo(center, arc_radius, a0, a1, 24);
+    draw_list->PathStroke(arrow_color, 0, radius * 0.16f);
+
+    // Arrowhead at the leading tip of the arc, oriented along the direction of travel.
+    const ImVec2 tip     = center + ImVec2(cosf(a1), sinf(a1)) * arc_radius;
+    const float tangent  = a1 + (clockwise ? 0.5f : -0.5f) * (float) M_PI;
+    const ImVec2 dir(cosf(tangent), sinf(tangent));
+    const ImVec2 side(-dir.y, dir.x);
+    const float head = radius * 0.32f;
+    draw_list->AddTriangleFilled(tip + dir * head, tip - dir * head * 0.2f + side * head * 0.7f, tip - dir * head * 0.2f - side * head * 0.7f, arrow_color);
+
+    if (hovered)
+        // ORCA: like ImGuizmo's own cube widget, this widget lives outside any ImGui window, so
+        // WantCaptureMouse has to be forced manually (applies starting next frame).
+        ImGui::CaptureMouseFromApp(true);
+    return hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+}
+
 void GLCanvas3D::_render_3d_navigator()
 {
     if (!wxGetApp().show_3d_navigator()) {
@@ -6179,6 +6214,23 @@ void GLCanvas3D::_render_3d_navigator()
     }
 
     m_navigator_dragging = result.dragging;
+
+    // Fusion-360-style roll arrows: only shown while the view is snapped flush to a cube face
+    // (works the same for every face, top/bottom included, since it just rolls the screen image
+    // around the current viewing axis). Placed just above the navigator cube's top corners.
+    if (!other_drag_active && !m_navigator_dragging && camera.is_axis_aligned_view()) {
+        const float arrow_r = 12.f * sc;
+        const float gap     = 6.f * sc;
+        const float arrow_y = viewManipulateTop - size - gap - arrow_r;
+        if (render_navigator_roll_button(ImVec2(viewManipulateLeft + arrow_r + gap, arrow_y), arrow_r, false, m_is_dark)) {
+            camera.rotate_view_roll(false);
+            request_extra_frame();
+        }
+        if (render_navigator_roll_button(ImVec2(viewManipulateLeft + size - arrow_r - gap, arrow_y), arrow_r, true, m_is_dark)) {
+            camera.rotate_view_roll(true);
+            request_extra_frame();
+        }
+    }
 }
 
 #define ENABLE_THUMBNAIL_GENERATOR_DEBUG_OUTPUT 0

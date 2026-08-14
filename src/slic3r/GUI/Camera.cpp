@@ -502,6 +502,17 @@ void Camera::set_rotation(const Transform3d& rotation)
     update_zenit();
 }
 
+void Camera::rotate_view_roll(bool clockwise)
+{
+    // Rotate the view-space frame by +-90 degrees around its own Z axis (the axis pointing from the
+    // target towards the camera). This spins the on-screen image in place without changing what is
+    // centered in view, so it applies the same way no matter which of the 6 faces is being viewed.
+    const Eigen::Quaterniond roll(Eigen::AngleAxisd(clockwise ? -0.5 * M_PI : 0.5 * M_PI, Vec3d::UnitZ()));
+    Transform3d rotation = Transform3d::Identity();
+    rotation.linear() = (roll * m_view_rotation).toRotationMatrix();
+    set_rotation(rotation);
+}
+
 std::pair<double, double> Camera::calc_tight_frustrum_zs_around(const BoundingBoxf3& box)
 {
     std::pair<double, double> ret;

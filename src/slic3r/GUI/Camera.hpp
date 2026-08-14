@@ -164,6 +164,17 @@ public:
     // returns true if the camera z axis (forward) is pointing in the negative direction of the world z axis
     bool is_looking_downward() const { return get_dir_forward().dot(Vec3d::UnitZ()) < 0.0; }
     bool is_looking_front() const { return abs(get_dir_up().dot(Vec3d::UnitZ())-1) < 0.001; }
+    // returns true if the view is snapped to one of the 6 principal directions (front/rear/left/right/top/bottom),
+    // i.e. the camera is looking straight along a world axis, as opposed to a free/iso/corner view
+    bool is_axis_aligned_view() const {
+        const Vec3d forward = get_dir_forward();
+        static constexpr double eps = 1e-3;
+        return std::abs(std::abs(forward.x()) - 1.0) < eps || std::abs(std::abs(forward.y()) - 1.0) < eps ||
+               std::abs(std::abs(forward.z()) - 1.0) < eps;
+    }
+    // rotates the current view 90 degrees around the viewing axis (roll), keeping the same face in view.
+    // Works identically regardless of which of the 6 faces is currently shown.
+    void rotate_view_roll(bool clockwise);
     // forces camera right vector to be parallel to XY plane
     void recover_from_free_camera() {
         if (std::abs(get_dir_right()(2)) > EPSILON)
